@@ -1,4 +1,3 @@
 pyrogram 
 pydub
 TgCrypto
-pyaudioop
