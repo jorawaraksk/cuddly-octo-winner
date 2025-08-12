@@ -3,9 +3,9 @@ import subprocess
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, Message
 
-API_ID = int(os.environ.get("API_ID", 123456))
-API_HASH = os.environ.get("API_HASH", "your_api_hash")
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "your_bot_token")
+API_ID = int(os.environ.get("API_ID", 647615905110))
+API_HASH = os.environ.get("API_HASH", "9BBD3D12EE2C673A60BD8C2A76C07905")
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "7078710813:AAEewmdbVbBK9F67F1h2IwOl0IVAI8YXYlo")
 
 app = Client("compress_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
