@@ -1,43 +1,87 @@
 import os
-import tempfile
 import subprocess
 from pyrogram import Client, filters
-from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery
-from pydub import AudioSegment
-from config import *
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, Message
 
-app = Client("bot", api_id=API_ID, api_hash=API_HASH, bot_token=API_TOKEN)
+API_ID = int(os.environ.get("API_ID", 123456))
+API_HASH = os.environ.get("API_HASH", "your_api_hash")
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "your_bot_token")
 
-@app.on_message(filters.command("start"))
-def start(client, message):
-    markup = InlineKeyboardMarkup([[InlineKeyboardButton("Compress Audio 🎧", callback_data="compress_audio"),
-                                    InlineKeyboardButton("Compress Video 🎥", callback_data="compress_video")]])
-    message.reply_text("Choose what you want to compress:", reply_markup=markup)
+app = Client("compress_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
+# Store user compression mode {user_id: "audio" or "video"}
+user_modes = {}
+
+
+# -------- Start Command -------- #
+@app.on_message(filters.command("start") & filters.private)
+async def start_handler(_, message: Message):
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🎵 Compress Audio", callback_data="mode_audio")],
+        [InlineKeyboardButton("🎥 Compress Video", callback_data="mode_video")]
+    ])
+    await message.reply_text(
+        "Hi! Choose what you want to compress:",
+        reply_markup=keyboard
+    )
+
+
+# -------- Button Callback -------- #
 @app.on_callback_query()
-def callback(client, callback_query: CallbackQuery):
-    callback_query.message.reply_text("Send me a file.")
+async def callback_handler(_, query: CallbackQuery):
+    user_id = query.from_user.id
+    if query.data == "mode_audio":
+        user_modes[user_id] = "audio"
+        await query.message.reply_text("✅ Audio compression mode set.\nNow send me an audio/voice file.")
+    elif query.data == "mode_video":
+        user_modes[user_id] = "video"
+        await query.message.reply_text("✅ Video compression mode set.\nNow send me a video/animation file.")
+    await query.answer()
 
-@app.on_message(filters.voice | filters.audio)
-def handle_audio(client, message):
-    file = client.download_media(message.voice.file_id if message.chat.type == "voice" else message.audio.file_id)
-    audio = AudioSegment.from_file(file).set_channels(AUDIO_CHANNELS).set_frame_rate(AUDIO_SAMPLE_RATE)
-    with tempfile.NamedTemporaryFile(suffix=TEMP_FILE_SUFFIX_AUDIO, delete=False) as temp_file:
-        temp_filename = temp_file.name
-        audio.export(temp_filename, format=AUDIO_FORMAT, bitrate=AUDIO_BITRATE)
-    message.reply_document(temp_filename)
-    os.remove(file)
-    os.remove(temp_filename)
 
-@app.on_message(filters.video | filters.animation)
-def handle_media(client, message):
-    file = client.download_media(message.video.file_id if message.video else message.animation.file_id)
-    with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as temp_file:
-        temp_filename = temp_file.name
-    if message.animation: subprocess.run(f'ffmpeg -i "{file}" "{temp_filename}"', shell=True, check=True)
-    subprocess.run(f'ffmpeg -i "{file}" -filter_complex "scale={VIDEO_SCALE}" -r {VIDEO_FPS} -c:v {VIDEO_CODEC} -pix_fmt {VIDEO_PIXEL_FORMAT} -b:v {VIDEO_BITRATE} -crf {VIDEO_CRF} -preset {VIDEO_PRESET} -c:a {VIDEO_AUDIO_CODEC} -b:a {VIDEO_AUDIO_BITRATE} -ac {VIDEO_AUDIO_CHANNELS} -ar {VIDEO_AUDIO_SAMPLE_RATE} -profile:v {VIDEO_PROFILE} -map_metadata -1 "{temp_filename}"', shell=True, check=True)
-    message.reply_video(temp_filename)
-    os.remove(file)
-    os.remove(temp_filename)
+# -------- File Handler -------- #
+@app.on_message(filters.private & (filters.audio | filters.voice | filters.video | filters.animation))
+async def file_handler(_, message: Message):
+    user_id = message.from_user.id
+    mode = user_modes.get(user_id)
+
+    if not mode:
+        await message.reply_text("⚠ Please choose a mode first using /start.")
+        return
+
+    # Download file
+    status = await message.reply_text("⬇ Downloading file...")
+    file_path = await app.download_media(message)
+    await status.edit("⚙ Compressing...")
+
+    try:
+        if mode == "audio":
+            output_path = f"compressed_{os.path.basename(file_path)}"
+            cmd = [
+                "ffmpeg", "-y", "-i", file_path,
+                "-b:a", "64k", "-ac", "1", output_path
+            ]
+        else:  # video mode
+            output_path = f"compressed_{os.path.basename(file_path)}"
+            cmd = [
+                "ffmpeg", "-y", "-i", file_path,
+                "-vcodec", "libx264", "-crf", "28", "-preset", "veryfast",
+                "-acodec", "aac", "-b:a", "64k", output_path
+            ]
+
+        subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+
+        await status.edit("📤 Uploading compressed file...")
+        await message.reply_document(output_path, caption="✅ Compressed file")
+
+    except subprocess.CalledProcessError as e:
+        await status.edit(f"❌ Compression failed:\n`{e}`")
+    finally:
+        # Cleanup
+        if os.path.exists(file_path):
+            os.remove(file_path)
+        if os.path.exists(output_path):
+            os.remove(output_path)
+        await status.delete()
 
 app.run()
