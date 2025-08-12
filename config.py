@@ -1,6 +1,6 @@
 # BOT Credentials
-API_ID = "20562331"
-API_HASH = "9e3e4148e73756a85b95fc69980b678d"
+API_ID = "16732227"
+API_HASH = "8b5594ad7ad37f3a0a7ddbfb3963bb51"
 API_TOKEN = "7078710813:AAEewmdbVbBK9F67F1h2IwOl0IVAI8YXYlo"
 
 # Audio compression settings
