@@ -102,7 +102,7 @@ async def file_handler(client, message: Message):
             output_path = f"compressed_{os.path.basename(file_path)}"
             cmd = [
                 "ffmpeg", "-y", "-i", file_path,
-                "-vcodec", "libx264", "-crf", "28", "-preset", "veryfast",
+                "-vcodec", "libx264", "-crf", "35", "-preset", "veryfast",
                 "-acodec", "aac", "-b:a", "64k", output_path
             ]
 
