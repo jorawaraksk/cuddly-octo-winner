@@ -12,6 +12,18 @@ app = Client("compress_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOK
 # Store user compression mode {user_id: "audio" or "video"}
 user_modes = {}
 
+# Gradient arrow symbols
+GRADIENT = ["⬜", "🟦", "🟩", "🟨", "🟧", "🟥"]
+
+def get_progress_bar(progress):
+    """Return a gradient arrow progress bar for given %."""
+    filled = int(progress // 5)  # one arrow per 5%
+    empty = 20 - filled
+    gradient_arrows = ""
+    for i in range(filled):
+        gradient_arrows += GRADIENT[min(i // 4, len(GRADIENT) - 1)]
+    gradient_arrows += "➖" * empty
+    return f"{gradient_arrows} {progress:.0f}%"
 
 # -------- Start Command -------- #
 @app.on_message(filters.command("start") & filters.private)
@@ -25,7 +37,6 @@ async def start_handler(_, message: Message):
         reply_markup=keyboard
     )
 
-
 # -------- Button Callback -------- #
 @app.on_callback_query()
 async def callback_handler(_, query: CallbackQuery):
@@ -38,10 +49,9 @@ async def callback_handler(_, query: CallbackQuery):
         await query.message.reply_text("✅ Video compression mode set.\nNow send me a video/animation file.")
     await query.answer()
 
-
 # -------- File Handler -------- #
 @app.on_message(filters.private & (filters.audio | filters.voice | filters.video | filters.animation))
-async def file_handler(_, message: Message):
+async def file_handler(client, message: Message):
     user_id = message.from_user.id
     mode = user_modes.get(user_id)
 
@@ -49,9 +59,16 @@ async def file_handler(_, message: Message):
         await message.reply_text("⚠ Please choose a mode first using /start.")
         return
 
-    # Download file
-    status = await message.reply_text("⬇ Downloading file...")
-    file_path = await app.download_media(message)
+    # Download with progress
+    status = await message.reply_text("⬇ Downloading file...\n" + get_progress_bar(0))
+
+    async def progress(current, total):
+        percent = current * 100 / total
+        if percent % 5 < 0.5:  # update only every ~5%
+            await status.edit(f"⬇ Downloading file...\n{get_progress_bar(percent)}")
+
+    file_path = await client.download_media(message, progress=progress)
+
     await status.edit("⚙ Compressing...")
 
     try:
@@ -71,13 +88,22 @@ async def file_handler(_, message: Message):
 
         subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
 
-        await status.edit("📤 Uploading compressed file...")
-        await message.reply_document(output_path, caption="✅ Compressed file")
+        # Upload with progress
+        async def upload_progress(current, total):
+            percent = current * 100 / total
+            if percent % 5 < 0.5:
+                await status.edit(f"📤 Uploading compressed file...\n{get_progress_bar(percent)}")
+
+        await client.send_document(
+            chat_id=message.chat.id,
+            document=output_path,
+            caption="✅ Compressed file",
+            progress=upload_progress
+        )
 
     except subprocess.CalledProcessError as e:
         await status.edit(f"❌ Compression failed:\n`{e}`")
     finally:
-        # Cleanup
         if os.path.exists(file_path):
             os.remove(file_path)
         if os.path.exists(output_path):
