@@ -1,4 +1,22 @@
+# Keep Render happy by binding to a port (fake HTTP listener)
 import os
+import threading
+import socket
+
+def keep_port_open():
+    port = int(os.environ.get("PORT", "10000"))  # Render assigns PORT env variable
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    s.bind(("0.0.0.0", port))
+    s.listen(1)
+    while True:
+        conn, _ = s.accept()
+        conn.close()
+
+threading.Thread(target=keep_port_open, daemon=True).start()
+
+# --- Your existing imports and bot code below ---
+
 import subprocess
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, Message
@@ -12,7 +30,7 @@ app = Client("compress_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOK
 # Store user compression mode {user_id: "audio" or "video"}
 user_modes = {}
 
-# Gradient arrow symbols
+# Gradient arrow symbols for progress bar
 GRADIENT = ["⬜", "🟦", "🟩", "🟨", "🟧", "🟥"]
 
 def get_progress_bar(progress):
@@ -24,6 +42,7 @@ def get_progress_bar(progress):
         gradient_arrows += GRADIENT[min(i // 4, len(GRADIENT) - 1)]
     gradient_arrows += "➖" * empty
     return f"{gradient_arrows} {progress:.0f}%"
+
 
 # -------- Start Command -------- #
 @app.on_message(filters.command("start") & filters.private)
@@ -64,7 +83,8 @@ async def file_handler(client, message: Message):
 
     async def progress(current, total):
         percent = current * 100 / total
-        if percent % 5 < 0.5:  # update only every ~5%
+        # Update every ~5%
+        if abs(percent % 5) < 0.5:
             await status.edit(f"⬇ Downloading file...\n{get_progress_bar(percent)}")
 
     file_path = await client.download_media(message, progress=progress)
@@ -91,7 +111,7 @@ async def file_handler(client, message: Message):
         # Upload with progress
         async def upload_progress(current, total):
             percent = current * 100 / total
-            if percent % 5 < 0.5:
+            if abs(percent % 5) < 0.5:
                 await status.edit(f"📤 Uploading compressed file...\n{get_progress_bar(percent)}")
 
         await client.send_document(
